@@ -1,6 +1,7 @@
 import { MediaRecorder, IMediaRecorder, register } from "extendable-media-recorder";
 import { connect } from "extendable-media-recorder-wav-encoder";
 import React, { useRef, useState } from "react";
+import { URL_WEBSOCKET } from "./Constant";
 
 const Home = () => {
   const [audioSocket, setAudioSocket] = useState<WebSocket | null>(null);
@@ -9,10 +10,17 @@ const Home = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [receivedData, setReceivedData] = useState<string[]>([]);
   const [audioUrl, setAudioUrl] = useState<string | null>(null); // State to hold audio URL
+  const [wsUrl, setWsUrl] = useState(URL_WEBSOCKET.SPEECH_TO_TEXT);
+  const [currentURL, setCurrentURL] = useState(URL_WEBSOCKET.SPEECH_TO_TEXT);
+
   const audioChunksRef = useRef<Blob[]>([]);
 
+  const connectToUrl1 = () => setWsUrl(URL_WEBSOCKET.SPEECH_TO_TEXT);
+  const connectToUrl2 = () => setWsUrl(URL_WEBSOCKET.FORMAT_CHECK);
+
   const connectWebSocket = () => {
-    const socket = new WebSocket("ws://localhost:7001/api/speech-recognition/hung");
+    const socket = new WebSocket(wsUrl);
+    setCurrentURL(wsUrl);
 
     socket.onopen = () => {
       console.log("Connected to WebSocket server");
@@ -51,18 +59,22 @@ const Home = () => {
     try {
       await register(await connect());
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: true,
+        audio: { channelCount: 1, sampleRate: 16000 },
       });
 
       mediaRecorderRef.current = new MediaRecorder(stream, { mimeType: "audio/wav" });
 
       const audioContext = new AudioContext({ sampleRate: 16000 });
+      audioContext.destination.channelCount = 1;
+      audioContext.destination.channelCountMode = "explicit";
       const mediaStreamAudioSourceNode = new MediaStreamAudioSourceNode(audioContext, {
         mediaStream: stream,
       });
 
       const mediaStreamAudioDestinationNode = new MediaStreamAudioDestinationNode(audioContext);
 
+      mediaStreamAudioDestinationNode.channelCount = 1;
+      mediaStreamAudioDestinationNode.channelCountMode = "explicit";
       mediaStreamAudioSourceNode.connect(mediaStreamAudioDestinationNode);
 
       mediaRecorderRef.current = new MediaRecorder(mediaStreamAudioDestinationNode.stream, {
@@ -73,17 +85,21 @@ const Home = () => {
 
       mediaRecorderRef.current.ondataavailable = (event) => {
         if (audioSocket && audioSocket.readyState === WebSocket.OPEN && event.data.size > 0) {
-          const blob = event.data;
           audioChunksRef.current.push(event.data);
-          const reader = new FileReader();
-          reader.readAsArrayBuffer(blob);
-          reader.onloadend = () => {
-            // Send the audio buffer to WebSocket server
-            if (reader.result) {
-              audioSocket.send(reader.result);
-              console.log("Sent audio data to server:", reader.result);
-            }
-          };
+
+          // Truyen buffer
+          // const blob = event.data;
+          // const reader = new FileReader();
+          // reader.readAsArrayBuffer(blob);
+          // reader.onloadend = () => {
+          //   // Send the audio buffer to WebSocket server
+          //   if (reader.result) {
+          //     audioSocket.send(reader.result);
+          //     console.log("Sent audio data to server:", reader.result);
+          //   }
+          // };
+          audioSocket.send(event.data);
+          console.log("Sent audio data to server:", event.data);
         }
       };
 
@@ -108,8 +124,51 @@ const Home = () => {
   };
 
   return (
-    <div>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "start",
+        gap: "20px",
+        padding: "60px",
+      }}
+    >
+      <button onClick={() => (window.location.href = "/streaming")}>Go to Streaming file</button>
       <h1>Speech to Text Service</h1>
+      <h5>
+        Current Connected URL:{" "}
+        {isConnected
+          ? currentURL === URL_WEBSOCKET.SPEECH_TO_TEXT
+            ? "Speech to Text"
+            : "Format Check"
+          : "None"}
+      </h5>
+      <div style={{ display: "flex", gap: "20px" }}>
+        <div>
+          <input
+            type="radio"
+            name="wsUrl"
+            id="url1"
+            checked={wsUrl === URL_WEBSOCKET.SPEECH_TO_TEXT}
+            onChange={() => connectToUrl1()}
+          />
+          <label htmlFor="url1" className="radio-circle">
+            Speech to Text
+          </label>
+        </div>
+        <div>
+          <input
+            type="radio"
+            name="wsUrl"
+            id="url2"
+            checked={wsUrl === URL_WEBSOCKET.FORMAT_CHECK}
+            onChange={() => connectToUrl2()}
+          />
+          <label htmlFor="url2" className="radio-circle">
+            Format Check
+          </label>
+        </div>
+      </div>
       <button onClick={isConnected ? disconnectWebSocket : connectWebSocket}>
         {isConnected ? "Disconnect" : "Connect"}
       </button>
@@ -127,11 +186,11 @@ const Home = () => {
           <audio controls src={audioUrl} />
         </div>
       )}
-      <h2>Received Audio Data:</h2>
+      <h2>Received Data:</h2>
       {receivedData ? (
         <pre>{JSON.stringify(Array.from(receivedData), null, 2)}</pre>
       ) : (
-        <p>No audio data received.</p>
+        <p>No data received.</p>
       )}
     </div>
   );
